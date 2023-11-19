@@ -6,7 +6,7 @@ class MTDataset(Dataset):
     def __init__(self, data, label=None):
         self.data = torch.from_numpy(data).float()
         if label is not None:
-            self.label = torch.LongTensor(label)
+            self.label = torch.from_numpy(label).float().unsqueeze(1)
         else:
             self.label = None
 

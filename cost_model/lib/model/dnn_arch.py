@@ -13,8 +13,6 @@ class DNN(nn.Module):
         self.act_fn = nn.LeakyReLU()
 
     def forward(self, x):
-        x = torch.flatten(x, start_dim=1)
-
         x = self.layer1(x)
         x = self.act_fn(x)
 

@@ -1,5 +1,5 @@
-python lib/main.py \
+python lib/test.py \
     --home_dir "./" \
     --data_dir "dataset" \
-    --model_type "dnn" \
+    --model_type "LinReg" \
     --param_dir "param"

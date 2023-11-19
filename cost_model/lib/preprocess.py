@@ -38,20 +38,25 @@ def get_instances_and_labels(args, data_subdir, counters):
     instances, labels = [], []
 
     for file in data_subdir.iterdir():
-        print(file)
-        # Get instance
+        # Read CSV
         df = pd.read_csv(file)
         df = rename_counter(df)
         df = df[counters]
         df = filter_rows(df)
         df = df.replace(regex="\s", value=0.0)
-        instance = df.astype("float").to_numpy()
-        check_format(instance)
-        instances.append(instance)
 
         # Get label
         iops = df[r"LogicalDisk(D:)\Disk Transfers/sec"].to_numpy().astype(np.float32)
+        kernel = np.array([1/args.window_size for _ in range(args.window_size)])
+        iops = np.convolve(iops, kernel, mode="valid")
         labels.append(iops)
+
+        # Get instance
+        #df = df.drop(r"LogicalDisk(D:)\Disk Transfers/sec", axis=1)
+        instance = df.astype("float").to_numpy()
+        instance = instance[:-1 * args.window_size + 1]
+        check_format(instance)
+        instances.append(instance)
 
     return instances, labels
 

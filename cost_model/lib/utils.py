@@ -19,12 +19,14 @@ def set_arg():
     parser.add_argument("--data_dir", type=pathlib.Path, required=True)
     
     # Data preprocess
-    parser.add_argument("--n_counters", type=int, default=103)
+    parser.add_argument("--n_counters", type=int, default=104)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--window_size", type=int, default=10)
     
     # Training/Testing
     parser.add_argument("--model_type", type=str, required=True)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--n_epoch", type=int, default=20)
+    parser.add_argument("--n_epoch", type=int, default=200)
+    parser.add_argument("--param_dir", type=pathlib.Path, required=True)
     return parser.parse_args()

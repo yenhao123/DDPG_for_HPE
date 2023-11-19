@@ -1,3 +1,6 @@
 cache
 dataset
 tmp
+lib/__pycache__
+lib/model/__pycache__
+param
