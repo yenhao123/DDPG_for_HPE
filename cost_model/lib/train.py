@@ -46,7 +46,7 @@ if __name__ == "__main__":
     cache_dir = Path("cache")
 
     # If preprocessed data exists in cache folder, load it directly.
-    IS_CACHED = True
+    IS_CACHED = False
 
     # Create a cache directory
     if not os.path.exists(cache_dir):
@@ -54,7 +54,7 @@ if __name__ == "__main__":
         IS_CACHED = False
 
     # Read data
-    data_cpath = cache_dir / "train_data.pickle"
+    data_cpath = cache_dir / ("train_data_ws=" + str(args.window_size) + ".pickle")
     IS_CACHED = IS_CACHED and os.path.exists(data_cpath)
     if IS_CACHED:
         with data_cpath.open("rb") as f:

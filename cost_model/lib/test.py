@@ -22,13 +22,13 @@ if __name__ == "__main__":
     '''
     Data Preprocess
     '''
-    test_data_dir = args.data_dir / "testing_data/fio_known"
-    #test_data_dir = args.data_dir / "tmp"
+    #test_data_dir = args.data_dir / "testing_data/fio_known"
+    test_data_dir = args.data_dir / "tmp"
     counter_path = args.data_dir / "counters.txt"
     cache_dir = Path("cache")
     
     # If preprocessed data exists in cache folder, load it directly.
-    IS_CACHED = True
+    IS_CACHED = False
 
     # Create a cache directory
     if not os.path.exists(cache_dir):
