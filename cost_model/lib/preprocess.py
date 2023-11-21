@@ -46,7 +46,7 @@ def get_instances_and_labels(args, data_subdir, counters):
         df = df.replace(regex="\s", value=0.0)
 
         # Get label
-        iops = df[r"LogicalDisk(D:)\Disk Transfers/sec"].to_numpy().astype(np.float32)
+        iops = df[r"Process(app)\IO Data Operations/sec"].to_numpy().astype(np.float32)
         kernel = np.array([1/args.window_size for _ in range(args.window_size)])
         iops = np.convolve(iops, kernel, mode="valid")
         labels.append(iops)
