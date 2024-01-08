@@ -1,6 +1,6 @@
 import gym
 import gym_pid
-#import gym_examples
+import gym_examples
 from DDPG import Agent
 import numpy as np
 import utils
