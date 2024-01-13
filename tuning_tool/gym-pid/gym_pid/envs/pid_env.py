@@ -2,82 +2,80 @@ import gym
 from gym import spaces
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd 
+
+PERF_LOG_PATH = r'C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\fio\performance_log.csv'
 
 class PidEnv(gym.Env):
-    def __init__(self, sample_rate=1, setpoint=50):
-        self.observation_space = spaces.Box(0, 1, shape=(3,))
-    
+    def __init__(self, max_steps=100):
+        super(PidEnv, self).__init__()
+        self.observation_space = spaces.Box(low=0, high=np.inf, shape=(9,))
+        
         self.action_space = spaces.Dict({
-            "proportional":spaces.Box(0, 1),
-            "integral":spaces.Box(0, 1),
-            "derivative":spaces.Box(0, 1),
-            })
-        self.sample_rate = sample_rate
-        self.setpoint = setpoint
-        self.error = self.setpoint
-        self.proportional = 0
-        self.integral = 0
-        self.derivative = 0
-        self.last_error = self.error
-        self.currpoint = [0, 0]
-        self.kp = 0.5
-        self.ki = 0.5
-        self.kd = 0.5
-        self.n = 200 # Simulation points
+          "qd": spaces.Discrete(5),
+          "mnpd": spaces.Box(low = 0, high = 60, dtype = int),
+          "mc": spaces.Discrete(2),
+          "pc": spaces.Discrete(2),
+          "dpo": spaces.Discrete(2),
+          "irp": spaces.Discrete(2),
+          "dwc": spaces.Discrete(2),
+          "smartpath_ac": spaces.Discrete(8),
+        })
+         
+        self.max_steps = max_steps
 
+        self.counter = 0
+        self.bandwidth = 0
+        self.throughput = 0
+        # state: score, action
+        self.initial_state = np.array([self.throughput, 0, 0 ,0, 0, 0, 0, 0, 0], dtype=np.float32)
+        self.observation = None
+        self.done = False
+        self.ideal = np.array([1200.0], dtype=np.float32) #ideal values for action space 
 
+    def reset(self):
+        self.done = False
+        self.counter = 0
+        return self.initial_state
+    
+    # Input : action; Output : observation & reward &
     def step(self, action):
-        self.currpoint = [0, 0]
-        self.xhistory = [0]
-        self.yhistory = [0]
-        self.kp = action[0] # Increasing p term reduces rise time
-        self.ki = action[1]
-        self.kd = action[2] # Increasing d term improves stability and decreases overshoot
-        done = False
+        qd = action['qd']
+        mnpd = action['mnpd']
+        mc = action['mc']
+        pc = action['pc'] 
+        dpo = action['dpo']
+        irp = action['irp']
+        dwc = action['dwc']
+        smartpath_ac = action['smartpath_ac'] 
 
-        while(self.currpoint[0]< self.n and done == False ):
-            # max x axis of n points 
-            self.proportional = self.kp * self.error
-            self.integral += self.ki * self.error * self.sample_rate
-            self.derivative = self.kd * (self.error - self.last_error) / self.sample_rate
+        action = np.array([qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac])
+        if (self.counter == self.max_steps):
+            self.done = True
+            print("Maximum steps reached")
+        else:
+            self.counter += 1
+        print(self.counter)
+        # Compute the new state based on the action (random formulae for now)
+        # TODO: Replace with actual reward function
+        df = pd.read_csv(PERF_LOG_PATH)
+        df.replace(regex="\s", value=0.0, inplace=True)
+        df = df.astype('float32')
+        df = df.loc[df["LogicalDisk(D:)\Disk Transfers/sec"]!=0]
+        self.throughput = df["LogicalDisk(D:)\Disk Transfers/sec"].mean()
+        self.bandwidth = df["LogicalDisk(D:)\Disk Bytes/sec"].mean()
 
-            curr_input = self.proportional + self.integral + self.derivative
+        print("Throughput: ", self.throughput)
+        print("Bandwidth: ", self.bandwidth)
 
-            self.last_error = self.error
-            self.currpoint[1] += curr_input
-            self.currpoint[0] += 1 
-            self.error = self.setpoint - float(self.currpoint[1])
-            self.xhistory.append(self.currpoint[0])
-            self.yhistory.append(self.currpoint[1])
-            if(self.currpoint[1] == self.yhistory[self.currpoint[0]-1]):
-                done = True
+        self.observation = np.array([self.throughput, qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac], dtype=np.float32)
+        objective = np.array([self.throughput], dtype=np.float32)
+        reward = objective - self.ideal
 
-        self.state = np.array([self.kp, self.ki, self.kd])
-        reward = -abs(self.error) - 0.005*self.currpoint[0]
-        if reward > -10:
-            reward += 10
-        return self._get_obs(), reward, done, {}
+        return self._get_obs(), reward, self.done, {}
 
     def _get_obs(self):
-        return self.state
-    
-    def reset(self):
-        self.error = self.setpoint
-        self.proportional = 0
-        self.integral = 0
-        self.derivative = 0
-        self.last_error = self.error
-        self.currpoint = [0,0]
-        self.kp = 0.5
-        self.ki = 0.5
-        self.kd = 0.5
-        self.continous = False
-        return self.step(np.array([0,0,0]))[0]
+        return self.observation
 
-    def render(self):
-        print("Error: "+str(self.error))
-        print("Proportional Term: "+str(self.proportional))
-        print("Integral Term: "+str(self.integral))
-        print("Derivative Term: "+str(self.derivative))
-        plt.plot(self.xhistory, self.yhistory)
-        plt.show()
+    def render(self, mode='human'):
+        print (f'Throughput: {self.throughput}, Bandwidth: {self.bandwidth}')
