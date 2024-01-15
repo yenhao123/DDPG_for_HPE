@@ -31,7 +31,8 @@ class PidEnv(gym.Env):
         self.initial_state = np.array([self.throughput, 0, 0 ,0, 0, 0, 0, 0, 0], dtype=np.float32)
         self.observation = None
         self.done = False
-        self.ideal = np.array([1200.0], dtype=np.float32) #ideal values for action space 
+        self.ideal = np.array([100.0], dtype=np.float32) #ideal values for action space 
+        self.prev_obj = np.array([0.0], dtype=np.float32)
 
     def reset(self):
         self.done = False
@@ -55,7 +56,7 @@ class PidEnv(gym.Env):
             print("Maximum steps reached")
         else:
             self.counter += 1
-        print(self.counter)
+
         # Compute the new state based on the action (random formulae for now)
         # TODO: Replace with actual reward function
         df = pd.read_csv(PERF_LOG_PATH)
@@ -71,7 +72,51 @@ class PidEnv(gym.Env):
         self.observation = np.array([self.throughput, qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac], dtype=np.float32)
         objective = np.array([self.throughput], dtype=np.float32)
         reward = objective - self.ideal
+        self.prev_obj = objective
+        return self._get_obs(), reward, self.done, {}
 
+    def step_syn(self, action):
+        qd = action['qd']
+        mnpd = action['mnpd']
+        mc = action['mc']
+        pc = action['pc'] 
+        dpo = action['dpo']
+        irp = action['irp']
+        dwc = action['dwc']
+        smartpath_ac = action['smartpath_ac'] 
+
+        #action = np.array([qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac])
+        if (self.counter == self.max_steps):
+            self.done = True
+            print("Maximum steps reached")
+        else:
+            self.counter += 1
+
+        throughput = 0
+        if action["mc"] == 1:
+            throughput += 20
+
+        if action["pc"] == 1:
+            throughput += 20
+        
+        if action["dpo"] == 1:
+            throughput += 20
+        
+        if action["irp"] == 1:
+            throughput += 20
+        
+        if action["dwc"] == 1:
+            throughput += 20
+
+        self.throughput = throughput
+
+        print("Throughput: ", self.throughput)
+
+        self.observation = np.array([self.throughput, qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac], dtype=np.float32)
+        objective = np.array([self.throughput], dtype=np.float32)
+        #reward = objective - self.ideal
+        reward = objective - self.prev_obj
+        self.prev_obj = objective
         return self._get_obs(), reward, self.done, {}
 
     def _get_obs(self):

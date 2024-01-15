@@ -11,7 +11,7 @@ import json
 
 LOAD_MODEL = True
 N_INFERENCE_ITERATIONS = 5
-LOG_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\log")
+LOG_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\log\inference")
 CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\config\config.json")
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
 
@@ -64,6 +64,9 @@ def randomize():
 # just used in original range between -1 and 1, e.g., tanh
 def scale_action(x, low, high):
     x = (x + 1) / (1 + 1) * (high - low) + low
+    x = int(x)
+    if x >= high:
+        x = high - 1
     return x
 
 if __name__ == "__main__":
@@ -75,24 +78,34 @@ if __name__ == "__main__":
         agent.load_models()
 
     
-    score_history = []
-    infer_dir = LOG_DIR / "inference"
-    infer_dir.mkdir(parents=True, exist_ok=True)
-    log_path = infer_dir / "state.txt"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOG_DIR / "state.txt"
     new_file(log_path)
 
     obs = env.reset()
     done = False
     score = 0
-    for i in range(N_INFERENCE_ITERATIONS):
-        act = agent.choose_action(obs)
-        
-        # Preprocess action
-        qd_list = [2, 4, 8, 16, 32]
-        qd_idx = int(scale_action(act[0], 0, 5))
-        qd = qd_list[qd_idx]
-        mnpd = int(scale_action(act[1], 0, 60))
-        mc, pc, dpo, irp, dwc, smartpath_ac = is_bigger_than_zero(act[2:8])
+    score_history = []
+    for i in range(N_INFERENCE_ITERATIONS + 1):
+        if i == 0:
+            act = [0, 0, 0, 0, 0, -1, 0, 0]
+            mc, pc, dpo, irp, dwc, qd, mnpd, smartpath_ac = act
+        else:
+            act = agent.choose_action(obs)
+            
+            # Preprocess action
+            ## discrete option
+            qd_list = [2, 4, 8, 16, 32]
+            qd_idx = scale_action(act[0], 0, 5)
+            qd = qd_list[qd_idx]
+            mnpd_list = list(range(0, 61, 5))
+            mnpd_idx = scale_action(act[1], 0, 13)
+            ## categorical option
+            mnpd = mnpd_list[mnpd_idx]
+            smartpath_ac = scale_action(act[7], 0, 7)
+            ## binary option
+            mc, pc, dpo, irp, dwc = is_bigger_than_zero(act[2:7])
+
         action = {
             "qd" : float(qd),
             "mnpd" : float(mnpd),
@@ -108,6 +121,7 @@ if __name__ == "__main__":
         config = {
         "configuration" : [int(mc), int(pc), int(dpo), int(irp), int(dwc), int(qd), int(mnpd), int(smartpath_ac)]
         }
+        #raise "1"
         tune_config_windows(config)
 
         # State order: [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]

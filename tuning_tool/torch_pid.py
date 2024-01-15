@@ -14,7 +14,7 @@ LOG_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_co
 #LOG_DIR = Path(r"C:\Users\Yang Chia-Lin\Desktop\ECLab\Master Thesis\option_tuning\experiment\exp8\ddpg\env_communicate\log")
 CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\config\config.json")
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
-N_EPISODES = 15
+N_EPISODES = 10
 EXPLORATION_RATE = 0.1
 
 # np.random.seed(1)
@@ -57,14 +57,21 @@ def randomize():
     dpo = random.randint(0, 1)
     irp = random.randint(0, 1)
     dwc = random.randint(0, 1)
-    qd = random.randint(2, 32)
-    mnpd = random.randint(0, 60)
+    qd_list = [2, 4, 8, 16, 32]
+    qd_idx = random.randint(0, 4)
+    qd = qd_list[qd_idx]
+    mnpd_list = list(range(0, 61, 5))
+    mnpd_idx = random.randint(0, 12)
+    mnpd = mnpd_list[mnpd_idx]
     smartpath_ac = random.randint(0, 7)
     return mc, pc, dpo, irp, dwc, qd, mnpd, smartpath_ac
 
 # just used in original range between -1 and 1, e.g., tanh
 def scale_action(x, low, high):
     x = (x + 1) / (1 + 1) * (high - low) + low
+    x = int(x)
+    if x >= high:
+        x = high - 1
     return x
 
 if __name__ == "__main__":
@@ -96,13 +103,13 @@ if __name__ == "__main__":
                 # Preprocess action
                 ## discrete option
                 qd_list = [2, 4, 8, 16, 32]
-                qd_idx = int(scale_action(act[0], 0, 5))
+                qd_idx = scale_action(act[0], 0, 5)
                 qd = qd_list[qd_idx]
                 mnpd_list = list(range(0, 61, 5))
-                mnpd_idx = int(scale_action(act[1], 0, 13))
+                mnpd_idx = scale_action(act[1], 0, 13)
                 ## categorical option
                 mnpd = mnpd_list[mnpd_idx]
-                smartpath_ac = int(scale_action(act[7], 0, 7))
+                smartpath_ac = scale_action(act[7], 0, 7)
                 ## binary option
                 mc, pc, dpo, irp, dwc = is_bigger_than_zero(act[2:7])
 
@@ -126,7 +133,7 @@ if __name__ == "__main__":
             tune_config_windows(config)
 
             # state order: [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
-            new_state, reward, done, info = env.step_syn(action)
+            new_state, reward, done, info = env.step(action)
             agent.remember(obs, act, reward, new_state, int(done))
             agent.learn()
             score += reward
