@@ -70,29 +70,32 @@ def randomize():
 def scale_action(x, low, high):
     x = (x + 1) / (1 + 1) * (high - low) + low
     x = int(x)
-    if x >= high:
-        x = high - 1
+    if x > high:
+        x = high
+    elif x < low:
+        x = low
     return x
 
 if __name__ == "__main__":
     env = gym.make('gym_pid/pid-v0')
-    #agent = Agent(alpha=1e-5, beta=0.1e-4, input_dims=[9], tau=0.0001, env=env,
-    #            batch_size=64,  layer1_size=256, layer2_size=128, n_actions=8)
+    agent = Agent(alpha=1e-5, beta=0.1e-4, input_dims=[9], tau=0.0001, env=env,
+                batch_size=64,  layer1_size=256, layer2_size=128, n_actions=8)
 
-    agent = Agent(alpha=1e-3, beta=1e-3, input_dims=[9], tau=0.0001, env=env,
-                batch_size=1,  layer1_size=256, layer2_size=128, n_actions=8)
+    #agent = Agent(alpha=1e-3, beta=1e-3, input_dims=[9], tau=0.0001, env=env,
+    #            batch_size=1,  layer1_size=256, layer2_size=128, n_actions=8)
+    
+    
     if LOAD_MODEL:
         agent.load_models()
 
     # TODO : default value for action space
-    score_history, state_all = [], []
+    state_all = []
     log_path = LOG_DIR / "state.txt"
     new_file(log_path)
 
     for i in range(N_EPISODES):
         obs = env.reset()
         done = False
-        score = 0
         while not done:
             result = np.random.choice(["random", "nonrandom"], p=[EXPLORATION_RATE, 1-EXPLORATION_RATE])
             if result == "random":
@@ -136,16 +139,11 @@ if __name__ == "__main__":
             new_state, reward, done, info = env.step(action)
             agent.remember(obs, act, reward, new_state, int(done))
             agent.learn()
-            score += reward
             obs = new_state
             state_all.append(new_state)
             env.render()
             with log_path.open("a") as f:
                 f.write(str(new_state).replace("\n", "") + "\n")
 
-        score_history.append(score)
         agent.save_models()
         env.render()
-
-        print('episode ', i, 'score %.2f' % score,
-            'trailing 25 games avg %.3f' % np.mean(score_history[-25:]))
