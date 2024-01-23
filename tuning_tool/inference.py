@@ -11,6 +11,7 @@ import json
 
 LOAD_MODEL = True
 N_INFERENCE_ITERATIONS = 5
+N_STATES = 31
 LOG_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\log\inference")
 CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\config\config.json")
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
@@ -69,10 +70,36 @@ def scale_action(x, low, high):
         x = high - 1
     return x
 
+def tune_default_config(env, log_path):
+    act = [0, 0, 0, 0, 0, -1, 0, 0]
+    mc, pc, dpo, irp, dwc, qd, mnpd, smartpath_ac = act
+    config = {
+        "configuration" : [int(mc), int(pc), int(dpo), int(irp), int(dwc), int(qd), int(mnpd), int(smartpath_ac)]
+    }
+
+    tune_config_windows(config)
+
+    action = {
+        "qd" : float(qd),
+        "mnpd" : float(mnpd),
+        "mc" : float(mc),
+        "pc" : float(pc),
+        "dpo" : float(dpo),
+        "irp" : float(irp),
+        "dwc" : float(dwc),
+        "smartpath_ac" : float(smartpath_ac)
+    }
+    new_state, reward, done, info = env.step(action)
+    with log_path.open("a") as f:
+        f.write(str(new_state).replace("\n", "") + "\n")
+
+    throughput = new_state[0]
+    return throughput
+
 if __name__ == "__main__":
     env = gym.make('gym_pid/pid-v0')
-    agent = Agent(alpha=0.00001, beta=0.0001, input_dims=[9], tau=0.0001, env=env,
-                batch_size=64,  layer1_size=256, layer2_size=128, n_actions=8)
+    agent = Agent(alpha=0.00001, beta=0.0001, input_dims=[N_STATES], tau=0.0001, env=env,
+                batch_size=1,  layer1_size=256, layer2_size=128, n_actions=8)
 
     if LOAD_MODEL:
         agent.load_models()
@@ -82,29 +109,36 @@ if __name__ == "__main__":
     log_path = LOG_DIR / "state.txt"
     new_file(log_path)
 
+    # Profile default round
+    #TODO
     obs = env.reset()
+
+    # Tuned
     done = False
-    score = 0
-    score_history = []
-    for i in range(N_INFERENCE_ITERATIONS + 1):
-        if i == 0:
-            act = [0, 0, 0, 0, 0, -1, 0, 0]
-            mc, pc, dpo, irp, dwc, qd, mnpd, smartpath_ac = act
-        else:
-            act = agent.choose_action(obs)
-            
-            # Preprocess action
-            ## discrete option
-            qd_list = [2, 4, 8, 16, 32]
-            qd_idx = scale_action(act[0], 0, 5)
-            qd = qd_list[qd_idx]
-            mnpd_list = list(range(0, 61, 5))
-            mnpd_idx = scale_action(act[1], 0, 13)
-            ## categorical option
-            mnpd = mnpd_list[mnpd_idx]
-            smartpath_ac = scale_action(act[7], 0, 7)
-            ## binary option
-            mc, pc, dpo, irp, dwc = is_bigger_than_zero(act[2:7])
+    best_recommended_throughput = -1
+    best_recommended_action = None
+    for i in range(N_INFERENCE_ITERATIONS):
+        if i % 10 == 0 :
+            throughput = tune_default_config(env, log_path)
+            print(f"Default throughput: {throughput}")
+            if best_recommended_throughput / throughput > 1.3:
+                print("Converge")
+                break
+
+        act = agent.choose_action(obs)
+        
+        # Preprocess action
+        ## discrete option
+        qd_list = [2, 4, 8, 16, 32]
+        qd_idx = scale_action(act[0], 0, 4)
+        qd = qd_list[qd_idx]
+        mnpd_list = list(range(0, 61, 5))
+        mnpd_idx = scale_action(act[1], 0, 12)
+        ## categorical option
+        mnpd = mnpd_list[mnpd_idx]
+        smartpath_ac = scale_action(act[7], 0, 7)
+        ## binary option
+        mc, pc, dpo, irp, dwc = is_bigger_than_zero(act[2:7])
 
         action = {
             "qd" : float(qd),
@@ -121,15 +155,21 @@ if __name__ == "__main__":
         config = {
         "configuration" : [int(mc), int(pc), int(dpo), int(irp), int(dwc), int(qd), int(mnpd), int(smartpath_ac)]
         }
-        #raise "1"
+
         tune_config_windows(config)
 
         # State order: [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
         new_state, reward, done, info = env.step(action)
         agent.remember(obs, act, reward, new_state, int(done))
+        #agent.learn()
         obs = new_state
         with log_path.open("a") as f:
             f.write(str(new_state).replace("\n", "") + "\n")
-                
-        score_history.append(score)
+        recommended_throughput = new_state[0]
+        if recommended_throughput > best_recommended_throughput:
+            best_recommended_throughput = recommended_throughput
+            best_recommended_action = action
         env.render()
+    
+    # Save best recommended action
+    print(f"Best recommended action: {best_recommended_action} with throughput {best_recommended_throughput}")

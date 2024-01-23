@@ -214,6 +214,7 @@ class Agent(object):
     def learn(self):
         if self.memory.mem_cntr < self.batch_size:
             return
+
         state, action, reward, new_state, done = \
                                       self.memory.sample_buffer(self.batch_size)
 

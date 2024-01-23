@@ -14,7 +14,8 @@ LOG_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_co
 #LOG_DIR = Path(r"C:\Users\Yang Chia-Lin\Desktop\ECLab\Master Thesis\option_tuning\experiment\exp8\ddpg\env_communicate\log")
 CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\config\config.json")
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
-N_EPISODES = 10
+N_EPISODES = 8
+N_STATES = 31
 EXPLORATION_RATE = 0.1
 
 # np.random.seed(1)
@@ -78,7 +79,7 @@ def scale_action(x, low, high):
 
 if __name__ == "__main__":
     env = gym.make('gym_pid/pid-v0')
-    agent = Agent(alpha=1e-5, beta=0.1e-4, input_dims=[9], tau=0.0001, env=env,
+    agent = Agent(alpha=1e-5, beta=0.1e-4, input_dims=[N_STATES], tau=0.0001, env=env,
                 batch_size=64,  layer1_size=256, layer2_size=128, n_actions=8)
 
     #agent = Agent(alpha=1e-3, beta=1e-3, input_dims=[9], tau=0.0001, env=env,
@@ -97,8 +98,8 @@ if __name__ == "__main__":
         obs = env.reset()
         done = False
         while not done:
-            result = np.random.choice(["random", "nonrandom"], p=[EXPLORATION_RATE, 1-EXPLORATION_RATE])
-            if result == "random":
+            is_random = np.random.choice(["random", "nonrandom"], p=[EXPLORATION_RATE, 1-EXPLORATION_RATE])
+            if is_random == "random":
                 mc, pc, dpo, irp, dwc, qd, mnpd, smartpath_ac = randomize()
                 act = [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
             else:
@@ -106,16 +107,15 @@ if __name__ == "__main__":
                 # Preprocess action
                 ## discrete option
                 qd_list = [2, 4, 8, 16, 32]
-                qd_idx = scale_action(act[0], 0, 5)
+                qd_idx = scale_action(act[0], 0, 4)
                 qd = qd_list[qd_idx]
                 mnpd_list = list(range(0, 61, 5))
-                mnpd_idx = scale_action(act[1], 0, 13)
+                mnpd_idx = scale_action(act[1], 0, 12)
                 ## categorical option
                 mnpd = mnpd_list[mnpd_idx]
                 smartpath_ac = scale_action(act[7], 0, 7)
                 ## binary option
                 mc, pc, dpo, irp, dwc = is_bigger_than_zero(act[2:7])
-
 
             action = {
             "qd" : float(qd),
@@ -134,7 +134,6 @@ if __name__ == "__main__":
             "configuration" : [int(mc), int(pc), int(dpo), int(irp), int(dwc), int(qd), int(mnpd), int(smartpath_ac)]
             }
             tune_config_windows(config)
-
             # state order: [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
             new_state, reward, done, info = env.step(action)
             agent.remember(obs, act, reward, new_state, int(done))
@@ -142,8 +141,11 @@ if __name__ == "__main__":
             obs = new_state
             state_all.append(new_state)
             env.render()
+            
+            new_state_list = np.append(new_state, is_random)
+            log_data = str(new_state_list).replace("\n", "")
             with log_path.open("a") as f:
-                f.write(str(new_state).replace("\n", "") + "\n")
+                f.write(log_data + "\n")
 
         agent.save_models()
         env.render()
