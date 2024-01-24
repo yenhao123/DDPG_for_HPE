@@ -8,14 +8,15 @@ import utils
 import subprocess
 import os
 import json
+import random
+
 
 LOAD_MODEL = True
 LOG_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\log")
-#LOG_DIR = Path(r"C:\Users\Yang Chia-Lin\Desktop\ECLab\Master Thesis\option_tuning\experiment\exp8\ddpg\env_communicate\log")
 CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\config\config.json")
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
-N_EPISODES = 8
-N_STATES = 31
+N_EPISODES = 10
+N_STATES = 9
 EXPLORATION_RATE = 0.1
 
 # np.random.seed(1)
@@ -52,7 +53,6 @@ def new_file(path):
         print(f"File '{path}' does not exist.") 
 
 def randomize():
-    import random
     mc = random.randint(0, 1)
     pc = random.randint(0, 1)
     dpo = random.randint(0, 1)
@@ -79,17 +79,15 @@ def scale_action(x, low, high):
 
 if __name__ == "__main__":
     env = gym.make('gym_pid/pid-v0')
+
+    # Hyperparameters Setting
     agent = Agent(alpha=1e-5, beta=0.1e-4, input_dims=[N_STATES], tau=0.0001, env=env,
                 batch_size=64,  layer1_size=256, layer2_size=128, n_actions=8)
-
-    #agent = Agent(alpha=1e-3, beta=1e-3, input_dims=[9], tau=0.0001, env=env,
-    #            batch_size=1,  layer1_size=256, layer2_size=128, n_actions=8)
-    
     
     if LOAD_MODEL:
         agent.load_models()
 
-    # TODO : default value for action space
+    # Iteratively Configuration Tuning
     state_all = []
     log_path = LOG_DIR / "state.txt"
     new_file(log_path)
@@ -107,33 +105,34 @@ if __name__ == "__main__":
                 # Preprocess action
                 ## discrete option
                 qd_list = [2, 4, 8, 16, 32]
-                qd_idx = scale_action(act[0], 0, 4)
+                qd_idx = scale_action(act[0], 0, len(qd_list)-1)
                 qd = qd_list[qd_idx]
-                mnpd_list = list(range(0, 61, 5))
-                mnpd_idx = scale_action(act[1], 0, 12)
+                mnpd_list = list(range(0, 31, 5))
+                mnpd_idx = scale_action(act[1], 0, len(mnpd_list)-1)
                 ## categorical option
                 mnpd = mnpd_list[mnpd_idx]
-                smartpath_ac = scale_action(act[7], 0, 7)
+                smartpath_ac = scale_action(act[7], 0, 6)
                 ## binary option
                 mc, pc, dpo, irp, dwc = is_bigger_than_zero(act[2:7])
 
+
             action = {
-            "qd" : float(qd),
-            "mnpd" : float(mnpd),
-            "mc" : float(mc),
-            "pc" : float(pc),
-            "dpo" : float(dpo),
-            "irp" : float(irp),
-            "dwc" : float(dwc),
-            "smartpath_ac" : float(smartpath_ac)
+                "qd" : float(qd),
+                "mnpd" : float(mnpd),
+                "mc" : float(mc),
+                "pc" : float(pc),
+                "dpo" : float(dpo),
+                "irp" : float(irp),
+                "dwc" : float(dwc),
+                "smartpath_ac" : float(smartpath_ac)
             }
             print("Suggested Parameters")
-           
             print(f"queue depth:{qd}, mnpd:{mnpd}, memory compression:{mc}, page combining:{pc}, dpo:{dpo}, irp:{irp}, dwc:{dwc}, smartpath_ac:{smartpath_ac}")
             config = {
             "configuration" : [int(mc), int(pc), int(dpo), int(irp), int(dwc), int(qd), int(mnpd), int(smartpath_ac)]
             }
             tune_config_windows(config)
+
             # state order: [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
             new_state, reward, done, info = env.step(action)
             agent.remember(obs, act, reward, new_state, int(done))
