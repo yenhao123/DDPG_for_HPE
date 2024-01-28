@@ -15,7 +15,7 @@ LOAD_MODEL = True
 LOG_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\log")
 CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\config\config.json")
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
-N_EPISODES = 10
+N_EPISODES = 5
 N_STATES = 9
 EXPLORATION_RATE = 0.1
 
@@ -59,12 +59,12 @@ def randomize():
     irp = random.randint(0, 1)
     dwc = random.randint(0, 1)
     qd_list = [2, 4, 8, 16, 32]
-    qd_idx = random.randint(0, 4)
+    qd_idx = random.randint(0, len(qd_list)-1)
     qd = qd_list[qd_idx]
-    mnpd_list = list(range(0, 61, 5))
-    mnpd_idx = random.randint(0, 12)
+    mnpd_list = list(range(0, 31, 5))
+    mnpd_idx = random.randint(0, len(mnpd_list)-1)
     mnpd = mnpd_list[mnpd_idx]
-    smartpath_ac = random.randint(0, 7)
+    smartpath_ac = random.randint(0, 6)
     return mc, pc, dpo, irp, dwc, qd, mnpd, smartpath_ac
 
 # just used in original range between -1 and 1, e.g., tanh
@@ -81,7 +81,7 @@ if __name__ == "__main__":
     env = gym.make('gym_pid/pid-v0')
 
     # Hyperparameters Setting
-    agent = Agent(alpha=1e-5, beta=0.1e-4, input_dims=[N_STATES], tau=0.0001, env=env,
+    agent = Agent(alpha=1e-5, beta=1e-4, input_dims=[N_STATES], tau=0.0001, env=env,
                 batch_size=64,  layer1_size=256, layer2_size=128, n_actions=8)
     
     if LOAD_MODEL:
@@ -109,8 +109,8 @@ if __name__ == "__main__":
                 qd = qd_list[qd_idx]
                 mnpd_list = list(range(0, 31, 5))
                 mnpd_idx = scale_action(act[1], 0, len(mnpd_list)-1)
-                ## categorical option
                 mnpd = mnpd_list[mnpd_idx]
+                ## categorical option
                 smartpath_ac = scale_action(act[7], 0, 6)
                 ## binary option
                 mc, pc, dpo, irp, dwc = is_bigger_than_zero(act[2:7])
@@ -131,7 +131,7 @@ if __name__ == "__main__":
             config = {
             "configuration" : [int(mc), int(pc), int(dpo), int(irp), int(dwc), int(qd), int(mnpd), int(smartpath_ac)]
             }
-            tune_config_windows(config)
+            #tune_config_windows(config)
 
             # state order: [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
             new_state, reward, done, info = env.step(action)
