@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
+import pickle
 
 class OUActionNoise(object):
     def __init__(self, mu, sigma=0.15, theta = 0.2, dt = 1e-2, x0 = None):
@@ -24,7 +25,8 @@ class OUActionNoise(object):
         self.x_prev = self.x0 if self.x0 is not None else np.zeros_like(self.mu)
 
 class ReplayBuffer(object):
-    def __init__(self,max_size, input_shape, n_actions):
+    def __init__(self,max_size, input_shape, n_actions, chkpt_dir='param', name='replay_buffer'):
+        self.checkpoint_file = os.path.join(chkpt_dir, name+'_ddpg')
         self.mem_size = max_size
         self.mem_cntr = 0
         self.state_memory = np.zeros((self.mem_size, *input_shape))
@@ -32,6 +34,13 @@ class ReplayBuffer(object):
         self.action_memory = np.zeros((self.mem_size, n_actions))
         self.reward_memory = np.zeros(self.mem_size)
         self.terminal_memory = np.zeros(self.mem_size, dtype=np.float32) # Dype for Pytorch implementation
+        self.memory = {
+            "state" : self.state_memory,
+            "action" : self.action_memory,
+            "reward" : self.reward_memory,
+            "new_state" : self.new_state_memory,
+            "terminal" : self.terminal_memory,
+        }
 
     def store_transition(self, state, action, reward, state_, done):
         index = self.mem_cntr % self.mem_size
@@ -54,6 +63,17 @@ class ReplayBuffer(object):
 
         return states, actions, rewards, new_states, terminal
 
+    def save_checkpoint(self):
+        print('... saving checkpoint ...')
+        with open(self.checkpoint_file, 'wb') as f:
+            pickle.dump(self.memory, f)
+
+    def load_checkpoint(self):
+        print('... loading checkpoint ...')
+        with open(self.checkpoint_file, 'rb') as f:
+            self.memory = pickle.load(f)
+        print(self.memory)
+
 class CriticNetwork(nn.Module):
     def __init__(self, beta, input_dims, fc1_dims, fc2_dims, n_actions, name, chkpt_dir = 'param'):
         super(CriticNetwork, self).__init__()
@@ -61,31 +81,30 @@ class CriticNetwork(nn.Module):
         self.fc1_dims = fc1_dims
         self.fc2_dims = fc2_dims
         self.n_actions = n_actions
-        self.checkpoint_file = os.path.join(chkpt_dir,name+'ddpg')
+        self.checkpoint_file = os.path.join(chkpt_dir, name+'_ddpg')
+        
+        # Initilize weights and biases for fc1
         self.fc1 = nn.Linear(*self.input_dims,self.fc1_dims)
         f1 = 1./ np.sqrt(self.fc1.weight.data.size()[0])
         T.nn.init.uniform_(self.fc1.weight.data, -f1, f1)
         T.nn.init.uniform_(self.fc1.bias.data, -f1, f1)
-        #self.fc1.weight.data.uniform_(-f1, f1)
-        #self.fc1.bias.data.uniform_(-f1, f1)
         self.bn1 = nn.LayerNorm(self.fc1_dims)
 
+        # Initilize weights and biases for fc2
         self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
         f2 = 1./np.sqrt(self.fc2.weight.data.size()[0])
         #f2 = 0.002
         T.nn.init.uniform_(self.fc2.weight.data, -f2, f2)
         T.nn.init.uniform_(self.fc2.bias.data, -f2, f2)
-        #self.fc2.weight.data.uniform_(-f2, f2)
-        #self.fc2.bias.data.uniform_(-f2, f2)
         self.bn2 = nn.LayerNorm(self.fc2_dims)
 
         self.action_value = nn.Linear(self.n_actions, self.fc2_dims)
+        
+        # Initilize weights and biases for output layer
         f3 = 0.003
         self.q = nn.Linear(self.fc2_dims, 1)
         T.nn.init.uniform_(self.q.weight.data, -f3, f3)
         T.nn.init.uniform_(self.q.bias.data, -f3, f3)
-        #self.q.weight.data.uniform_(-f3, f3)
-        #self.q.bias.data.uniform_(-f3, f3)
 
         self.optimizer = optim.Adam(self.parameters(), lr=beta)
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
@@ -93,13 +112,17 @@ class CriticNetwork(nn.Module):
         self.to(self.device)
 
     def forward(self, state, action):
+        # about state
         state_value = self.fc1(state)
         state_value = self.bn1(state_value)
         state_value = F.relu(state_value)
         state_value = self.fc2(state_value)
         state_value = self.bn2(state_value)
-
+        
+        # about action
         action_value = F.relu(self.action_value(action))
+
+        # combine state and action
         state_action_value = F.relu(T.add(state_value, action_value))
         state_action_value = self.q(state_action_value)
 
@@ -121,31 +144,27 @@ class ActorNetwork(nn.Module):
         self.fc1_dims = fc1_dims 
         self.fc2_dims = fc2_dims
         self.n_actions = n_actions
-        self.checkpoint_file = os.path.join(chkpt_dir,name+'_ddpg')
+        self.checkpoint_file = os.path.join(chkpt_dir, name+'_ddpg')
+        
+        # Initilize weights and biases for fc1
         self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
         f1 = 1./np.sqrt(self.fc1.weight.data.size()[0])
         T.nn.init.uniform_(self.fc1.weight.data, -f1, f1)
         T.nn.init.uniform_(self.fc1.bias.data, -f1, f1)
-        #self.fc1.weight.data.uniform_(-f1, f1)
-        #self.fc1.bias.data.uniform_(-f1, f1)
         self.bn1 = nn.LayerNorm(self.fc1_dims)
 
+        # Initilize weights and biases for fc2
         self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
-        #f2 = 0.002
         f2 = 1./np.sqrt(self.fc2.weight.data.size()[0])
         T.nn.init.uniform_(self.fc2.weight.data, -f2, f2)
         T.nn.init.uniform_(self.fc2.bias.data, -f2, f2)
-        #self.fc2.weight.data.uniform_(-f2, f2)
-        #self.fc2.bias.data.uniform_(-f2, f2)
         self.bn2 = nn.LayerNorm(self.fc2_dims)
 
-        #f3 = 0.004
+        # Initilize weights and biases for output layer
         f3 = 0.003
         self.mu = nn.Linear(self.fc2_dims, self.n_actions)
         T.nn.init.uniform_(self.mu.weight.data, -f3, f3)
         T.nn.init.uniform_(self.mu.bias.data, -f3, f3)
-        #self.mu.weight.data.uniform_(-f3, f3)
-        #self.mu.bias.data.uniform_(-f3, f3)
 
         self.optimizer = optim.Adam(self.parameters(), lr=alpha)
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
@@ -202,7 +221,7 @@ class Agent(object):
         self.actor.eval()
         observation = T.tensor(observation, dtype=T.float).to(self.actor.device)
         mu = self.actor.forward(observation).to(self.actor.device)
-        # TODO why add noise?
+        # add noise to explore
         mu_prime = mu + T.tensor(self.noise(),
                                  dtype=T.float).to(self.actor.device)
         self.actor.train()
@@ -214,35 +233,38 @@ class Agent(object):
     def learn(self):
         if self.memory.mem_cntr < self.batch_size:
             return
-
         state, action, reward, new_state, done = \
                                       self.memory.sample_buffer(self.batch_size)
 
+        # to tensor
         reward = T.tensor(reward, dtype=T.float).to(self.critic.device)
         done = T.tensor(done).to(self.critic.device)
         new_state = T.tensor(new_state, dtype=T.float).to(self.critic.device)
         action = T.tensor(action, dtype=T.float).to(self.critic.device)
         state = T.tensor(state, dtype=T.float).to(self.critic.device)
 
+        # get predicted long term reward(critic_value) and target long term reward(target)
         self.target_actor.eval()
         self.target_critic.eval()
         self.critic.eval()
         target_actions = self.target_actor.forward(new_state)
-        critic_value_ = self.target_critic.forward(new_state, target_actions)
         critic_value = self.critic.forward(state, action)
-
+        
+        critic_value_ = self.target_critic.forward(new_state, target_actions)
         target = []
         for j in range(self.batch_size):
             target.append(reward[j] + self.gamma*critic_value_[j]*done[j])
         target = T.tensor(target).to(self.critic.device)
         target = target.view(self.batch_size, 1)
 
+        # update critic via mse_loss(target, critic_value)
         self.critic.train()
         self.critic.optimizer.zero_grad()
         critic_loss = F.mse_loss(target, critic_value)
         critic_loss.backward()
         self.critic.optimizer.step()
 
+        # update actor via critic_value
         self.critic.eval()
         self.actor.optimizer.zero_grad()
         mu = self.actor.forward(state)
@@ -252,6 +274,7 @@ class Agent(object):
         actor_loss.backward()
         self.actor.optimizer.step()
 
+        # update target networks
         self.update_network_parameters()
 
     def update_network_parameters(self, tau=None):
@@ -298,12 +321,14 @@ class Agent(object):
         self.target_actor.save_checkpoint()
         self.critic.save_checkpoint()
         self.target_critic.save_checkpoint()
+        self.memory.save_checkpoint()
 
     def load_models(self):
         self.actor.load_checkpoint()
         self.target_actor.load_checkpoint()
         self.critic.load_checkpoint()
         self.target_critic.load_checkpoint()
+        self.memory.load_checkpoint()
 
     def check_actor_params(self):
         current_actor_params = self.actor.named_parameters()

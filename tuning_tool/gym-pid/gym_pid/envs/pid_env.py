@@ -14,8 +14,9 @@ CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\en
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
 
 class PidEnv(gym.Env):
-    def __init__(self, max_steps=100):
+    def __init__(self, max_steps=20):
         super(PidEnv, self).__init__()
+        # TODO: Define action and observation space
         self.observation_space = spaces.Box(low=0, high=np.inf, shape=(9,))
         
         self.action_space = spaces.Dict({
@@ -34,17 +35,17 @@ class PidEnv(gym.Env):
         self.counter = 0
         self.bandwidth = 0
         self.throughput = 0
-        # state: score, action
-        #self.initial_state = np.array([self.throughput, 0, 0 ,0, 0, 0, 0, 0, 0], dtype=np.float32)
-        self.initial_state = self.get_init_state()
+        self.initial_state = self._get_init_state()
         self.observation = None
         self.done = False
         self.ideal = np.array([100.0], dtype=np.float32) #ideal values for action space 
         self.prev_obj = np.array([0.0], dtype=np.float32)
+        self.action_history = []
 
     def reset(self):
         self.done = False
         self.counter = 0
+        self.action_history = []
         return self.initial_state
         
     # Input : action; Output : observation & reward &
@@ -65,13 +66,25 @@ class PidEnv(gym.Env):
         else:
             self.counter += 1
 
-        # Compute the new state based on the action (random formulae for now)
+        # get the reward
         metrics = self.observe()
         option = np.array([qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac], dtype=np.float32)
         self.observation = np.concatenate([metrics, option], axis=None)
         objective = np.array([self.throughput], dtype=np.float32)
-        reward = objective - self.ideal
+        delta_t = objective - self.ideal
+        action = action.tolist()
+        reward = delta_t
+        '''
+        # add penalty
+         if action in self.action_history:
+            reward = -10000000
+        else:
+            reward = delta_t       
+        '''
+
         self.prev_obj = objective
+        self.action_history.append(action)
+        print("Reward: ", reward)
         return self._get_obs(), reward, self.done, {}
 
     def observe(self):
@@ -82,7 +95,12 @@ class PidEnv(gym.Env):
         self.throughput = df["LogicalDisk(D:)\Disk Transfers/sec"].mean()
         self.bandwidth = df["LogicalDisk(D:)\Disk Bytes/sec"].mean()
         
-        metrics = np.array(self.throughput)
+        ld_cols = [col for col in df.columns if "LogicalDisk" in col]
+        df = df[ld_cols]
+        # throughput 移到第一行
+        first_column = df.pop("LogicalDisk(D:)\Disk Transfers/sec")
+        df.insert(0, "LogicalDisk(D:)\Disk Transfers/sec", first_column)
+        metrics = df.mean().tolist()
         
         print("Throughput: ", self.throughput)
         print("Bandwidth: ", self.bandwidth)
@@ -94,9 +112,8 @@ class PidEnv(gym.Env):
     def render(self, mode='human'):
         print (f'Throughput: {self.throughput}, Bandwidth: {self.bandwidth}')
 
-    def get_init_state(self):
+    def _get_init_state(self):
         act = [-1, 0, 0, 0, 0, 0, 0, 0]
-        #mc, pc, dpo, irp, dwc, qd, mnpd, smartpath_ac = act
         qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac = act
         config = {
             "configuration" : [int(mc), int(pc), int(dpo), int(irp), int(dwc), int(qd), int(mnpd), int(smartpath_ac)]
@@ -104,19 +121,12 @@ class PidEnv(gym.Env):
 
         self.tune_config_windows(config)
 
-        action = {
-            "qd" : float(qd),
-            "mnpd" : float(mnpd),
-            "mc" : float(mc),
-            "pc" : float(pc),
-            "dpo" : float(dpo),
-            "irp" : float(irp),
-            "dwc" : float(dwc),
-            "smartpath_ac" : float(smartpath_ac)
-        }
         metrics = self.observe()
         initial_state = np.concatenate([metrics, np.array(act)], axis=None)
         return initial_state
+
+    def get_init_state(self):
+        return self.initial_state
 
     def tune_config_windows(self, config):
         with CONFIG_PATH.open('w') as file:

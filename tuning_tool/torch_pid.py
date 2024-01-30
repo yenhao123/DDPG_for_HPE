@@ -4,6 +4,7 @@ from DDPG import Agent
 from pathlib import Path
 import pickle
 import numpy as np
+import math
 import utils
 import subprocess
 import os
@@ -11,13 +12,13 @@ import json
 import random
 
 
-LOAD_MODEL = True
+LOAD_MODEL = False
 LOG_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\log")
 CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\config\config.json")
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
-N_EPISODES = 5
-N_STATES = 9
-EXPLORATION_RATE = 0.1
+N_EPISODES = 25
+N_STATES = 31
+EXPLORATION_RATE = 0
 
 # np.random.seed(1)
 
@@ -49,8 +50,6 @@ def new_file(path):
         # 如果存在，删除文件
         os.remove(path)
         print(f"File '{path}' deleted.")
-    else:
-        print(f"File '{path}' does not exist.") 
 
 def randomize():
     mc = random.randint(0, 1)
@@ -69,29 +68,43 @@ def randomize():
 
 # just used in original range between -1 and 1, e.g., tanh
 def scale_action(x, low, high):
-    x = (x + 1) / (1 + 1) * (high - low) + low
-    x = int(x)
+    x = round((x + 1) / (1 + 1) * (high - low) + low)
     if x > high:
         x = high
     elif x < low:
         x = low
     return x
 
+def log_obs(new_state, reward, is_random, log_path):
+    log_data = np.append(new_state, reward)
+    log_data = np.append(log_data, is_random)
+    log_data = str(log_data).replace("\n", "")
+    with log_path.open("a") as f:
+        f.write(log_data + "\n")
+
+def log_action(action, log_path):
+    with log_path.open("a") as f:
+        f.write(str(action) + "\n")
+
 if __name__ == "__main__":
     env = gym.make('gym_pid/pid-v0')
 
     # Hyperparameters Setting
-    agent = Agent(alpha=1e-5, beta=1e-4, input_dims=[N_STATES], tau=0.0001, env=env,
-                batch_size=64,  layer1_size=256, layer2_size=128, n_actions=8)
+    agent = Agent(alpha=1e-5, beta=1e-4, input_dims=[N_STATES], tau=1e-4, env=env,
+                batch_size=8,  layer1_size=256, layer2_size=128, n_actions=8)
     
     if LOAD_MODEL:
         agent.load_models()
 
-    # Iteratively Configuration Tuning
-    state_all = []
-    log_path = LOG_DIR / "state.txt"
-    new_file(log_path)
+    state_path, action_path = LOG_DIR / "state.txt", LOG_DIR / "action.txt"
+    new_file(state_path)
+    new_file(action_path)
 
+    # Record initial state
+    obs = env.get_init_state()
+    log_obs(obs, "start", "start", state_path)
+
+    # Iteratively Configuration Tuning
     for i in range(N_EPISODES):
         obs = env.reset()
         done = False
@@ -131,20 +144,19 @@ if __name__ == "__main__":
             config = {
             "configuration" : [int(mc), int(pc), int(dpo), int(irp), int(dwc), int(qd), int(mnpd), int(smartpath_ac)]
             }
-            #tune_config_windows(config)
+            tune_config_windows(config)
 
-            # state order: [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
+            # state order: [throughput, qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
+            # action order: [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
             new_state, reward, done, info = env.step(action)
             agent.remember(obs, act, reward, new_state, int(done))
             agent.learn()
             obs = new_state
-            state_all.append(new_state)
             env.render()
             
-            new_state_list = np.append(new_state, is_random)
-            log_data = str(new_state_list).replace("\n", "")
-            with log_path.open("a") as f:
-                f.write(log_data + "\n")
-
+            # Log data
+            log_obs(new_state, reward, is_random, state_path)
+            log_action(action, LOG_DIR / "action.txt")
+            
         agent.save_models()
         env.render()
