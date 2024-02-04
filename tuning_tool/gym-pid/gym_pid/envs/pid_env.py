@@ -14,7 +14,7 @@ CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\en
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
 
 class PidEnv(gym.Env):
-    def __init__(self, max_steps=20):
+    def __init__(self, max_steps=10):
         super(PidEnv, self).__init__()
         # TODO: Define action and observation space
         self.observation_space = spaces.Box(low=0, high=np.inf, shape=(9,))
@@ -71,17 +71,14 @@ class PidEnv(gym.Env):
         option = np.array([qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac], dtype=np.float32)
         self.observation = np.concatenate([metrics, option], axis=None)
         objective = np.array([self.throughput], dtype=np.float32)
-        delta_t = objective - self.ideal
+        delta_t = objective - self.prev_obj
         action = action.tolist()
-        reward = delta_t
-        '''
         # add penalty
-         if action in self.action_history:
-            reward = -10000000
+        if action in self.action_history:
+            reward = np.array([-10000000])
         else:
             reward = delta_t       
-        '''
-
+              
         self.prev_obj = objective
         self.action_history.append(action)
         print("Reward: ", reward)
@@ -142,7 +139,8 @@ class PidEnv(gym.Env):
             print(result.stderr)
             raise "1"
         
-    def step_syn(self, action):
+    # Input : action; Output : observation & reward &
+    def sythetetic_step(self, action):
         qd = action['qd']
         mnpd = action['mnpd']
         mc = action['mc']
@@ -152,36 +150,56 @@ class PidEnv(gym.Env):
         dwc = action['dwc']
         smartpath_ac = action['smartpath_ac'] 
 
-        #action = np.array([qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac])
+        action = np.array([qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac])
         if (self.counter == self.max_steps):
             self.done = True
             print("Maximum steps reached")
         else:
             self.counter += 1
 
-        throughput = 0
-        if action["mc"] == 1:
-            throughput += 20
-
-        if action["pc"] == 1:
-            throughput += 20
-        
-        if action["dpo"] == 1:
-            throughput += 20
-        
-        if action["irp"] == 1:
-            throughput += 20
-        
-        if action["dwc"] == 1:
-            throughput += 20
-
-        self.throughput = throughput
-
-        print("Throughput: ", self.throughput)
-
-        self.observation = np.array([self.throughput, qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac], dtype=np.float32)
+        # get the reward
+        metrics = self.synthetic_observe()
+        option = np.array([qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac], dtype=np.float32)
+        self.observation = np.concatenate([metrics, option], axis=None)
         objective = np.array([self.throughput], dtype=np.float32)
-        #reward = objective - self.ideal
-        reward = objective - self.prev_obj
+        delta_t = objective - self.prev_obj
+        action = action.tolist()
+        reward = delta_t
+
+        '''
+        # add penalty
+        if action in self.action_history:
+            reward = np.array([-10000000])
+        else:
+            reward = delta_t        
+        '''
+ 
         self.prev_obj = objective
+        self.action_history.append(action)
+        print("Reward: ", reward)
         return self._get_obs(), reward, self.done, {}
+
+    def synthetic_observe(self):
+        perf_sythetic_dir = r'C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\fio\synthetic'
+        
+        files = list(Path(perf_sythetic_dir).iterdir())
+
+        file_idx = np.random.uniform(low=0, high=len(files)-1, size=1)[0]
+        file_idx = round(file_idx)
+        df = pd.read_csv(files[file_idx])
+        df.replace(regex="\s", value=0.0, inplace=True)
+        df = df.astype('float32')
+        df = df.loc[df["LogicalDisk(D:)\Disk Transfers/sec"]!=0]
+        self.throughput = df["LogicalDisk(D:)\Disk Transfers/sec"].mean()
+        self.bandwidth = df["LogicalDisk(D:)\Disk Bytes/sec"].mean()
+        
+        ld_cols = [col for col in df.columns if "LogicalDisk" in col]
+        df = df[ld_cols]
+        # throughput 移到第一行
+        first_column = df.pop("LogicalDisk(D:)\Disk Transfers/sec")
+        df.insert(0, "LogicalDisk(D:)\Disk Transfers/sec", first_column)
+        metrics = df.mean().tolist()
+        
+        print("Throughput: ", self.throughput)
+        print("Bandwidth: ", self.bandwidth)
+        return metrics

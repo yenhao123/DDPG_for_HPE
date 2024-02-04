@@ -190,7 +190,7 @@ class ActorNetwork(nn.Module):
         print('... loading checkpoint ...')
         self.load_state_dict(T.load(self.checkpoint_file))
 
-class Agent(object):
+class DDPGAgent(object):
     def __init__(self, alpha, beta, input_dims, tau, env, gamma=0.9,
                  n_actions=3, max_size=1000000, layer1_size=256,
                  layer2_size=128, batch_size=32):
