@@ -1,6 +1,10 @@
+import sys
+# change home_path
+HOME_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool"
+sys.path.append(HOME_PATH)
 import gym
 import gym_pid
-from DDPG import Agent
+from model.DDPG import DDPGAgent
 from pathlib import Path
 import pickle
 import numpy as np
@@ -16,7 +20,7 @@ LOAD_MODEL = False
 LOG_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\log")
 CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\config\config.json")
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
-N_EPISODES = 25
+N_EPISODES = 50
 N_STATES = 31
 EXPLORATION_RATE = 0
 
@@ -44,7 +48,14 @@ def tune_config_windows(config):
         print(result.stderr)
         raise "1"
 
-def new_file(path):
+def new_dir(path):
+    # 检查文件夹是否存在
+    if not os.path.exists(path):
+        # 如果不存在，创建文件夹
+        os.makedirs(path)
+        print(f"Directory '{path}' created.")
+
+def clean_file(path):
     # 检查文件是否存在
     if os.path.exists(path):
         # 如果存在，删除文件
@@ -90,23 +101,27 @@ if __name__ == "__main__":
     env = gym.make('gym_pid/pid-v0')
 
     # Hyperparameters Setting
-    agent = Agent(alpha=1e-5, beta=1e-4, input_dims=[N_STATES], tau=1e-4, env=env,
-                batch_size=8,  layer1_size=256, layer2_size=128, n_actions=8)
+    param_dir = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\param\ddpg")
+    agent = DDPGAgent(alpha=1e-5, beta=1e-4, input_dims=[N_STATES], tau=1e-4, env=env,
+                batch_size=8,  layer1_size=256, layer2_size=128, n_actions=8, chkpt_dir=param_dir)
     
     if LOAD_MODEL:
         agent.load_models()
 
+    # Log Setting
+    new_dir(LOG_DIR)
+    fio_log_dir = LOG_DIR / "fio"
+    new_dir(fio_log_dir)
+    logman_log_dir = LOG_DIR / "logman"
+    new_dir(logman_log_dir)
     state_path, action_path = LOG_DIR / "state.txt", LOG_DIR / "action.txt"
-    new_file(state_path)
-    new_file(action_path)
-
-    # Record initial state
-    obs = env.get_init_state()
-    log_obs(obs, "start", "start", state_path)
+    clean_file(state_path)
+    clean_file(action_path)
 
     # Iteratively Configuration Tuning
     for i in range(N_EPISODES):
         obs = env.reset()
+        log_obs(obs, "start", "start", state_path)
         done = False
         while not done:
             is_random = np.random.choice(["random", "nonrandom"], p=[EXPLORATION_RATE, 1-EXPLORATION_RATE])
@@ -157,6 +172,6 @@ if __name__ == "__main__":
             # Log data
             log_obs(new_state, reward, is_random, state_path)
             log_action(action, LOG_DIR / "action.txt")
-            
+
         agent.save_models()
         env.render()

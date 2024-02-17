@@ -6,9 +6,12 @@ import pandas as pd
 from pathlib import Path
 import subprocess
 import os
+from datetime import datetime
+
 import json
 
-PERF_LOG_PATH = r'C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\fio\performance_log.csv'
+PERF_LOG_PATH = r'C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\log\logman\performance_log.csv'
+PERF_FIO_LOG_PATH = r'C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\log\fio\state_fio.json'
 THROUGHPUT_IDX = 0
 CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\config\config.json")
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
@@ -35,7 +38,7 @@ class PidEnv(gym.Env):
         self.counter = 0
         self.bandwidth = 0
         self.throughput = 0
-        self.initial_state = self._get_init_state()
+        self.initial_state = 0
         self.observation = None
         self.done = False
         self.ideal = np.array([100.0], dtype=np.float32) #ideal values for action space 
@@ -44,8 +47,9 @@ class PidEnv(gym.Env):
 
     def reset(self):
         self.done = False
-        self.counter = 0
+        self.counter = 1
         self.action_history = []
+        self.initial_state = self._get_init_state()
         return self.initial_state
         
     # Input : action; Output : observation & reward &
@@ -73,34 +77,43 @@ class PidEnv(gym.Env):
         objective = np.array([self.throughput], dtype=np.float32)
         delta_t = objective - self.prev_obj
         action = action.tolist()
+        '''
         # add penalty
         if action in self.action_history:
             reward = np.array([-10000000])
         else:
-            reward = delta_t       
-              
+            reward = delta_t          
+        '''
+        reward = delta_t
+        
         self.prev_obj = objective
         self.action_history.append(action)
         print("Reward: ", reward)
         return self._get_obs(), reward, self.done, {}
 
     def observe(self):
+        # Get system states from logman tool
         df = pd.read_csv(PERF_LOG_PATH)
         df.replace(regex="\s", value=0.0, inplace=True)
         df = df.astype('float32')
         df = df.loc[df["LogicalDisk(D:)\Disk Transfers/sec"]!=0]
-        self.throughput = df["LogicalDisk(D:)\Disk Transfers/sec"].mean()
-        self.bandwidth = df["LogicalDisk(D:)\Disk Bytes/sec"].mean()
-        
+
         ld_cols = [col for col in df.columns if "LogicalDisk" in col]
         df = df[ld_cols]
         # throughput 移到第一行
         first_column = df.pop("LogicalDisk(D:)\Disk Transfers/sec")
         df.insert(0, "LogicalDisk(D:)\Disk Transfers/sec", first_column)
         metrics = df.mean().tolist()
-        
+
+        # Get system states from fio tool
+        with open(PERF_FIO_LOG_PATH, 'r') as f:
+            json_data = json.load(f)
+        self.throughput = json_data["jobs"][0]["read"]["iops"] + json_data["jobs"][0]["write"]["iops"]
+        self.bandwidth = json_data["jobs"][0]["read"]["bw"] + json_data["jobs"][0]["write"]["bw"]
         print("Throughput: ", self.throughput)
-        print("Bandwidth: ", self.bandwidth)
+        print("Bandwidth(kb): ", self.bandwidth)
+        rename_file(PERF_FIO_LOG_PATH)
+
         return metrics
 
     def _get_obs(self):
@@ -203,3 +216,23 @@ class PidEnv(gym.Env):
         print("Throughput: ", self.throughput)
         print("Bandwidth: ", self.bandwidth)
         return metrics
+
+def rename_file(old_name):
+    try:
+        # Get current timestamp
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+
+        # Extract file extension from old_name (if any)
+        base_name, file_extension = os.path.splitext(old_name)
+
+        # Create a new name with timestamp
+        new_name = f"{base_name}_{timestamp}{file_extension}"
+
+        # Rename the file
+        os.rename(old_name, new_name)
+
+        print(f"File '{old_name}' has been renamed to '{new_name}'.")
+    except FileNotFoundError:
+        print(f"Error: File '{old_name}' not found.")
+    except Exception as e:
+        print(f"An error occurred: {e}")

@@ -72,7 +72,6 @@ class ReplayBuffer(object):
         print('... loading checkpoint ...')
         with open(self.checkpoint_file, 'rb') as f:
             self.memory = pickle.load(f)
-        print(self.memory)
 
 class CriticNetwork(nn.Module):
     def __init__(self, beta, input_dims, fc1_dims, fc2_dims, n_actions, name, chkpt_dir = 'param'):
@@ -193,25 +192,25 @@ class ActorNetwork(nn.Module):
 class DDPGAgent(object):
     def __init__(self, alpha, beta, input_dims, tau, env, gamma=0.9,
                  n_actions=3, max_size=1000000, layer1_size=256,
-                 layer2_size=128, batch_size=32):
+                 layer2_size=128, batch_size=32, chkpt_dir='param'):
         self.gamma = gamma
         self.tau = tau
-        self.memory = ReplayBuffer(max_size, input_dims, n_actions)
+        self.memory = ReplayBuffer(max_size, input_dims, n_actions, chkpt_dir=chkpt_dir)
         self.batch_size = batch_size
 
         self.actor = ActorNetwork(alpha, input_dims, layer1_size,
                                   layer2_size, n_actions=n_actions,
-                                  name='Actor')
+                                  chkpt_dir=chkpt_dir, name='Actor')
         self.critic = CriticNetwork(beta, input_dims, layer1_size,
                                     layer2_size, n_actions=n_actions,
-                                    name='Critic')
+                                    chkpt_dir=chkpt_dir, name='Critic')
 
         self.target_actor = ActorNetwork(alpha, input_dims, layer1_size,
                                          layer2_size, n_actions=n_actions,
-                                         name='TargetActor')
+                                         chkpt_dir=chkpt_dir, name='TargetActor')
         self.target_critic = CriticNetwork(beta, input_dims, layer1_size,
                                            layer2_size, n_actions=n_actions,
-                                           name='TargetCritic')
+                                           chkpt_dir=chkpt_dir, name='TargetCritic')
 
         self.noise = OUActionNoise(mu=np.zeros(n_actions))
 
