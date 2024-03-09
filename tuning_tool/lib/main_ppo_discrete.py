@@ -18,11 +18,10 @@ from model.PPO_action_masking import PPOAgent
 
 LOAD_MODEL = False
 LOG_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\log")
-PARAM_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\param")
 CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\config\config.json")
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
 N_EPISODES = 50
-N_STATES = 31
+N_STATES = 33
 N_ACTIONS = 8
 EXPLORATION_RATE = 0
 
@@ -50,7 +49,14 @@ def tune_config_windows(config):
         print(result.stderr)
         raise "1"
 
-def new_file(path):
+def new_dir(path):
+    # 检查文件夹是否存在
+    if not os.path.exists(path):
+        # 如果不存在，创建文件夹
+        os.makedirs(path)
+        print(f"Directory '{path}' created.")
+
+def clean_file(path):
     # 检查文件是否存在
     if os.path.exists(path):
         # 如果存在，删除文件
@@ -146,18 +152,22 @@ if __name__ == "__main__":
         checkpoint_path = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\param\ppo\PPO.pth"
         ppo_agent.load(checkpoint_path)
 
+    # Log Setting
+    new_dir(LOG_DIR)
+    fio_log_dir = LOG_DIR / "fio"
+    new_dir(fio_log_dir)
+    logman_log_dir = LOG_DIR / "logman"
+    new_dir(logman_log_dir)
     state_path, action_path = LOG_DIR / "state.txt", LOG_DIR / "action.txt"
-    new_file(state_path)
-    new_file(action_path)
+    clean_file(state_path)
+    clean_file(action_path)
 
     # Iteratively Configuration Tuning
     time_step = 0
 
     for i in range(N_EPISODES):
-        # Record initial state
-        obs = env.get_init_state()
-        log_obs(obs, "start", "start", state_path)
         obs = env.reset()
+        log_obs(obs, "default", "default", state_path)
         done = False
         info_per_eposide = []
         while not done:
@@ -166,7 +176,7 @@ if __name__ == "__main__":
                 mc, pc, dpo, irp, dwc, qd, mnpd, smartpath_ac = randomize()
                 act = [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
             else:
-                act = ppo_agent.select_action(obs)
+                act, act_prob = ppo_agent.select_action(obs)
                 action = idx2action[act]
                 qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac = action
             action = {
@@ -188,7 +198,7 @@ if __name__ == "__main__":
 
             # state order: [throughput, qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
             # action order: [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
-            new_state, reward, done, info = env.sythetetic_step(action)
+            new_state, reward, done, info = env.step(action)
             
             # saving reward and is_terminals
             ppo_agent.buffer.rewards.append(reward)
@@ -207,7 +217,7 @@ if __name__ == "__main__":
 
             # Log data
             log_obs(new_state, reward, is_random, state_path)
-            log_action(action, LOG_DIR / "action.txt")
+            log_action(act_prob, LOG_DIR / "action.txt")
             info_per_eposide.append((action,new_state[0]))
 
         action_per_eposide = np.array([action for action, _ in info_per_eposide])

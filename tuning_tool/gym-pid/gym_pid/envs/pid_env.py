@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import os
 from datetime import datetime
+import math
 
 import json
 
@@ -43,6 +44,7 @@ class PidEnv(gym.Env):
         self.done = False
         self.ideal = np.array([100.0], dtype=np.float32) #ideal values for action space 
         self.prev_obj = np.array([0.0], dtype=np.float32)
+        self.default_obj = np.array([0.0], dtype=np.float32)
         self.action_history = []
 
     def reset(self):
@@ -71,27 +73,45 @@ class PidEnv(gym.Env):
             self.counter += 1
 
         # get the reward
-        metrics = self.observe()
+        fio_metrics, logman_metrics = self.observe()
         option = np.array([qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac], dtype=np.float32)
-        self.observation = np.concatenate([metrics, option], axis=None)
-        objective = np.array([self.throughput], dtype=np.float32)
-        delta_t = objective - self.prev_obj
-        action = action.tolist()
-        '''
-        # add penalty
-        if action in self.action_history:
-            reward = np.array([-10000000])
-        else:
-            reward = delta_t          
-        '''
-        reward = delta_t
+        self.observation = np.concatenate([fio_metrics, logman_metrics, option], axis=None)
+        objective = np.array([fio_metrics[0]], dtype=np.float32)
+        reward = self._get_reward(objective)
         
         self.prev_obj = objective
         self.action_history.append(action)
         print("Reward: ", reward)
         return self._get_obs(), reward, self.done, {}
 
+    def _calucate_reward(self, delta0, deltat):
+        if delta0 > 0:
+            _reward = ((1+delta0)**2-1) * math.fabs(1+deltat)
+        else:
+            _reward = - ((1-delta0)**2-1) * math.fabs(1-deltat)
+
+        if _reward > 0 and deltat < 0:
+            _reward = 0
+        return _reward
+
+    def _get_reward(self, objective):
+        delta_0_tp = float((objective[0] - self.default_obj[0]))/self.default_obj[0]
+        delta_t_tp = float((objective[0] - self.prev_obj[0]))/self.prev_obj[0]
+        
+        tp_reward = self._calucate_reward(delta_0_tp, delta_t_tp)
+        return tp_reward
+
     def observe(self):
+        # Get system states from fio tool
+        with open(PERF_FIO_LOG_PATH, 'r') as f:
+            json_data = json.load(f)
+        self.throughput = json_data["jobs"][0]["read"]["iops"] + json_data["jobs"][0]["write"]["iops"]
+        self.bandwidth = json_data["jobs"][0]["read"]["bw"] + json_data["jobs"][0]["write"]["bw"]
+        print("Throughput: ", self.throughput)
+        print("Bandwidth(kb): ", self.bandwidth)
+        rename_file(PERF_FIO_LOG_PATH)
+        fio_metrics = [self.throughput, self.bandwidth]
+
         # Get system states from logman tool
         df = pd.read_csv(PERF_LOG_PATH)
         df.replace(regex="\s", value=0.0, inplace=True)
@@ -103,18 +123,9 @@ class PidEnv(gym.Env):
         # throughput 移到第一行
         first_column = df.pop("LogicalDisk(D:)\Disk Transfers/sec")
         df.insert(0, "LogicalDisk(D:)\Disk Transfers/sec", first_column)
-        metrics = df.mean().tolist()
+        logman_metrics = df.mean().tolist()
 
-        # Get system states from fio tool
-        with open(PERF_FIO_LOG_PATH, 'r') as f:
-            json_data = json.load(f)
-        self.throughput = json_data["jobs"][0]["read"]["iops"] + json_data["jobs"][0]["write"]["iops"]
-        self.bandwidth = json_data["jobs"][0]["read"]["bw"] + json_data["jobs"][0]["write"]["bw"]
-        print("Throughput: ", self.throughput)
-        print("Bandwidth(kb): ", self.bandwidth)
-        rename_file(PERF_FIO_LOG_PATH)
-
-        return metrics
+        return fio_metrics, logman_metrics
 
     def _get_obs(self):
         return self.observation
@@ -123,6 +134,7 @@ class PidEnv(gym.Env):
         print (f'Throughput: {self.throughput}, Bandwidth: {self.bandwidth}')
 
     def _get_init_state(self):
+        #file_server_act = [-1, 15, 0, 0, 1, 1, 1, 2]
         act = [-1, 0, 0, 0, 0, 0, 0, 0]
         qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac = act
         config = {
@@ -131,8 +143,10 @@ class PidEnv(gym.Env):
 
         self.tune_config_windows(config)
 
-        metrics = self.observe()
-        initial_state = np.concatenate([metrics, np.array(act)], axis=None)
+        fio_metrics, logman_metrics  = self.observe()
+        self.default_obj = np.array([fio_metrics[0]], dtype=np.float32)
+        self.prev_obj = np.array([fio_metrics[0]], dtype=np.float32)
+        initial_state = np.concatenate([fio_metrics, logman_metrics , np.array(act)], axis=None)
         return initial_state
 
     def get_init_state(self):
@@ -151,7 +165,7 @@ class PidEnv(gym.Env):
             print("Failed to execute PowerShell")
             print(result.stderr)
             raise "1"
-        
+
     # Input : action; Output : observation & reward &
     def sythetetic_step(self, action):
         qd = action['qd']
@@ -171,51 +185,50 @@ class PidEnv(gym.Env):
             self.counter += 1
 
         # get the reward
-        metrics = self.synthetic_observe()
+        fio_metrics, logman_metrics = self.synthetic_observe()
         option = np.array([qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac], dtype=np.float32)
-        self.observation = np.concatenate([metrics, option], axis=None)
-        objective = np.array([self.throughput], dtype=np.float32)
-        delta_t = objective - self.prev_obj
-        action = action.tolist()
-        reward = delta_t
-
-        '''
-        # add penalty
-        if action in self.action_history:
-            reward = np.array([-10000000])
-        else:
-            reward = delta_t        
-        '''
- 
+        self.observation = np.concatenate([fio_metrics, logman_metrics, option], axis=None)
+        objective = np.array([fio_metrics[0]], dtype=np.float32)
+        reward = self._get_reward(objective)
+        
         self.prev_obj = objective
         self.action_history.append(action)
         print("Reward: ", reward)
         return self._get_obs(), reward, self.done, {}
 
     def synthetic_observe(self):
-        perf_sythetic_dir = r'C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\fio\synthetic'
+        perf_sythetic_dir = Path(r'C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\fio\synthetic')
         
-        files = list(Path(perf_sythetic_dir).iterdir())
+        # Get system states from fio tool
+        perf_synthetic_fio_dir = perf_sythetic_dir / "fio"
+        files = list(perf_synthetic_fio_dir.iterdir())
+        file_idx = round(np.random.uniform(low=0, high=len(files)-1, size=1)[0])
+        with open(files[file_idx], 'r') as f:
+            json_data = json.load(f)
+        self.throughput = json_data["jobs"][0]["read"]["iops"] + json_data["jobs"][0]["write"]["iops"]
+        self.bandwidth = json_data["jobs"][0]["read"]["bw"] + json_data["jobs"][0]["write"]["bw"]
+        print("Throughput: ", self.throughput)
+        print("Bandwidth(kb): ", self.bandwidth)
+        fio_metrics = [self.throughput, self.bandwidth]
 
-        file_idx = np.random.uniform(low=0, high=len(files)-1, size=1)[0]
-        file_idx = round(file_idx)
+        # Get system states from logman tool
+        perf_synthetic_logman_dir = perf_sythetic_dir / "logman"
+        files = list(Path(perf_synthetic_logman_dir).iterdir())
+        file_idx = round(np.random.uniform(low=0, high=len(files)-1, size=1)[0])
         df = pd.read_csv(files[file_idx])
         df.replace(regex="\s", value=0.0, inplace=True)
         df = df.astype('float32')
         df = df.loc[df["LogicalDisk(D:)\Disk Transfers/sec"]!=0]
-        self.throughput = df["LogicalDisk(D:)\Disk Transfers/sec"].mean()
-        self.bandwidth = df["LogicalDisk(D:)\Disk Bytes/sec"].mean()
-        
+
         ld_cols = [col for col in df.columns if "LogicalDisk" in col]
         df = df[ld_cols]
-        # throughput 移到第一行
         first_column = df.pop("LogicalDisk(D:)\Disk Transfers/sec")
         df.insert(0, "LogicalDisk(D:)\Disk Transfers/sec", first_column)
-        metrics = df.mean().tolist()
-        
-        print("Throughput: ", self.throughput)
-        print("Bandwidth: ", self.bandwidth)
-        return metrics
+        logman_metrics = df.mean().tolist()
+
+        return fio_metrics, logman_metrics
+
+
 
 def rename_file(old_name):
     try:

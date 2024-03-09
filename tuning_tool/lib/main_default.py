@@ -16,15 +16,13 @@ import json
 import random
 
 
-LOAD_MODEL = False
 LOG_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\log")
 CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\config\config.json")
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
-N_ITEARIONS = 500
+N_ITERATIONS = 500
 N_STATES = 33
 
-random_seed = 1
-random.seed(random_seed)
+# np.random.seed(1)
 
 def is_bigger_than_zero(x):
     for i in range(len(x)):
@@ -61,7 +59,6 @@ def clean_file(path):
         # 如果存在，删除文件
         os.remove(path)
         print(f"File '{path}' deleted.")
-
 
 def randomize():
     mc = random.randint(0, 1)
@@ -112,39 +109,8 @@ if __name__ == "__main__":
     clean_file(action_path)
 
     # Iteratively Configuration Tuning
-    for i in range(N_ITEARIONS):
+    for i in range(N_ITERATIONS):
         obs = env.reset()
         log_obs(obs, "start", "start", state_path)
         done = False
-        while not done:
-            mc, pc, dpo, irp, dwc, qd, mnpd, smartpath_ac = randomize()
-            act = [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
-
-            action = {
-                "qd" : float(qd),
-                "mnpd" : float(mnpd),
-                "mc" : float(mc),
-                "pc" : float(pc),
-                "dpo" : float(dpo),
-                "irp" : float(irp),
-                "dwc" : float(dwc),
-                "smartpath_ac" : float(smartpath_ac)
-            }
-            print("Suggested Parameters")
-            print(f"queue depth:{qd}, mnpd:{mnpd}, memory compression:{mc}, page combining:{pc}, dpo:{dpo}, irp:{irp}, dwc:{dwc}, smartpath_ac:{smartpath_ac}")
-            config = {
-            "configuration" : [int(mc), int(pc), int(dpo), int(irp), int(dwc), int(qd), int(mnpd), int(smartpath_ac)]
-            }
-            tune_config_windows(config)
-
-            # state order: [throughput, qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
-            # action order: [qd, mnpd, mc, pc, dpo, irp, dwc, smartpath_ac]
-            new_state, reward, done, info = env.step(action)
-            obs = new_state
-            env.render()
-            
-            # Log data
-            log_obs(new_state, reward, "random", state_path)
-            log_action(action, LOG_DIR / "action.txt")
-
         env.render()

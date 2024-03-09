@@ -14,19 +14,21 @@ import subprocess
 import os
 import json
 import random
+import time
+import copy
 
-
-LOAD_MODEL = False
+LOAD_MODEL = True
 LOG_DIR = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\log")
 CONFIG_PATH = Path(r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\config\config.json")
 POWERSHELL_PATH = r"C:\Users\Administrator\Desktop\Master_Thesis\tuning_tool\env_communicate\main.ps1"
-N_EPISODES = 50
-N_STATES = 31
+N_EPISODES = 200
+N_STATES = 33
 EXPLORATION_RATE = 0
 
 # np.random.seed(1)
 
-def is_bigger_than_zero(x):
+def is_bigger_than_zero(act_prob):
+    x = copy.deepcopy(act_prob)
     for i in range(len(x)):
         if x[i] > 0:
             x[i] = 1
@@ -171,7 +173,7 @@ if __name__ == "__main__":
             
             # Log data
             log_obs(new_state, reward, is_random, state_path)
-            log_action(action, LOG_DIR / "action.txt")
+            log_action(act, LOG_DIR / "action.txt")
 
         agent.save_models()
         env.render()
